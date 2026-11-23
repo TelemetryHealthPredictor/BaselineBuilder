@@ -1,12 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using BaselineBuilderNew.Config.Settings;
 using BaselineBuilderNew.Data.MongoOutputs;
 using BaselineBuilderNew.Data.ResultObjects;
 using BaselineBuilderNew.IO.Input.Abstractions;
 using BaselineBuilderNew.KalmanFilterBaseline.Abstractions;
 using MathNet.Numerics.LinearAlgebra;
 using MathNet.Numerics.Statistics;
+using Microsoft.Extensions.Options;
 using MongoLib.Documents;
 using StatsLib;
 using ThpUtils.Naming;
@@ -18,8 +20,10 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
         private readonly IDatabaseReader _reader;
         private readonly NamingData _namingData;
 
+        private readonly int _requiredNumOfFlights;
+
         private const int windowSize = 10;
-        private const int quantile = 15;
+        private const double quantile = 15;
 
         private Dictionary<string, MovingStatistics> _variableStats;
 
@@ -29,11 +33,19 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
 
         private Dictionary<string, int> _variancesAveraged;
 
+        private Dictionary<string, bool> _variablesFoundInDB;
 
-        public R0Calculator(IDatabaseReader reader, NamingData namingData)
+
+        private int _flightsProcessed = 1;
+        private int _batchesProcessed = 1;
+
+
+        public R0Calculator(IDatabaseReader reader, NamingData namingData, IOptions<CalcSettings> calcSettings)
         {
             _reader = reader;
             _namingData = namingData;
+
+            _requiredNumOfFlights = calcSettings.Value.RequiredNumOfFlights;
 
             _quantileCalculators = [];
 
@@ -42,84 +54,37 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
             _variances = [];
             _variancesAveraged = [];
 
-            foreach (string fieldName in _namingData.ParameterNames)
+            _variablesFoundInDB = [];
+
+            foreach (string variableName in _namingData.ParameterNames)
             {
-                _variableStats.Add(fieldName, new MovingStatistics(windowSize));
-                _quantileCalculators.Add(fieldName, new TDigest());
+                _variableStats.Add(variableName, new MovingStatistics(windowSize));
+                _quantileCalculators.Add(variableName, new TDigest());
+                _variablesFoundInDB.Add(variableName, false);
             }
         }
 
 
         public async Task<R0Result> CalculateR0()
         {
-            // Go over samples for every parameter,
-            // calculating for each one the rolling STD of its most recent window.
-            // pass these rolling STDs to TDigest, and extract the 15th percentile at the end.
+            FlightDocument[] flights = await _reader.GetFlightsAsync(_requiredNumOfFlights);
 
-            NamedSample[]? samples = (await _reader.GetInitialSamplesAsync()).ToArray();
+            await ProcessFlightsAsync(flights, RecalculateQuantiles);
 
-            foreach (NamedSample sample in samples)
+            foreach(var variableFound in _variablesFoundInDB)
             {
-                RecalculateQuantiles(sample);
-            }
-
-            samples = (await _reader.GetNextSamplesAsync())?.ToArray();
-            while (samples != null)
-            {
-                foreach (NamedSample sample in samples)
-                {
-                    RecalculateQuantiles(sample);
-                }
-
-                samples = (await _reader.GetNextSamplesAsync())?.ToArray();
+                Console.WriteLine($"{variableFound.Key} found? {variableFound.Value}");
             }
 
             return new R0Result()
             {
-                R0DiagonalVector = Vector<double>.Build.DenseOfArray(await CalculateVariances())
+                R0DiagonalVector = Vector<double>.Build.DenseOfArray(await CalculateVariances(flights))
             };
         }
 
-        private void RecalculateQuantiles(NamedSample sample)
+        private async Task<double[]> CalculateVariances(FlightDocument[] flights)
         {
-            _variableStats[sample.Name].Push(sample.Sample.Value);
-
-            if (_variableStats[sample.Name].Count < windowSize)
-            {
-                return;
-            }
-
-            double populationStandardDeviation = _variableStats[sample.Name].PopulationStandardDeviation;
-            if (Double.IsFinite(populationStandardDeviation))
-            {
-                _quantileCalculators[sample.Name].Add(populationStandardDeviation);
-            }
-        }
-
-        private async Task<double[]> CalculateVariances()
-        {
-            foreach (string variable in _variableStats.Keys)
-            {
-                _variableStats[variable] = new MovingStatistics(windowSize);
-            }
-
-            NamedSample[]? samples = (NamedSample[])await _reader.GetInitialSamplesAsync();
-
-            foreach (NamedSample sample in samples)
-            {
-                RecalculateVariances(sample);
-            }
-
-            samples = (NamedSample[]?)await _reader.GetNextSamplesAsync();
-            while (samples != null)
-            {
-                foreach (NamedSample sample in samples)
-                {
-                    RecalculateVariances(sample);
-                }
-
-                samples = (NamedSample[]?)await _reader.GetNextSamplesAsync();
-            }
+            await ProcessFlightsAsync(flights, RecalculateVariances);
 
             List<double> result = [];
 
@@ -131,13 +96,66 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
             return result.ToArray();
         }
 
+        private async Task ProcessFlightsAsync(FlightDocument[] flights, Action<NamedSample> processSample)
+        {
+            foreach (FlightDocument flight in flights)
+            {
+                Console.WriteLine($"Processing Flight #{_flightsProcessed++}");
+
+                ResetWindows();
+
+                NamedSample[] samples = await _reader.GetInitialSamplesAsync(flight);
+
+                while (samples.Length > 0)
+                {
+                    Console.WriteLine($"Processing 5 minute batch of samples #{_batchesProcessed++}");
+                    Console.WriteLine($"Batch sample count: {samples.Length}");
+
+                    foreach (NamedSample sample in samples)
+                    {
+                        _variablesFoundInDB[sample.Name] = true;
+
+                        processSample(sample);
+                    }
+
+                    samples = await _reader.GetNextSamplesAsync();
+                }
+            }
+        }
+
+        private void ResetWindows()
+        {
+            foreach (string fieldName in _namingData.ParameterNames)
+            {
+                _variableStats[fieldName] = new MovingStatistics(windowSize);
+            }
+        }
+
+        private void RecalculateQuantiles(NamedSample sample)
+        {
+            _variableStats[sample.Name].Push(sample.Sample.Value);
+
+            if (_variableStats[sample.Name].Count < windowSize)
+            {
+                return;
+            }
+
+            double stdDeviation = _variableStats[sample.Name].PopulationStandardDeviation;
+            if (!Double.IsFinite(stdDeviation))
+            {
+                stdDeviation = 0.0;
+            }
+
+            _quantileCalculators[sample.Name].Add(stdDeviation);
+        }
+
         private void RecalculateVariances(NamedSample sample)
         {
             _variableStats[sample.Name].Push(sample.Sample.Value);
 
             if (_variableStats[sample.Name].Count < windowSize ||
                 _variableStats[sample.Name].PopulationStandardDeviation > 
-                    _quantileCalculators[sample.Name].Quantile(quantile))
+                    _quantileCalculators[sample.Name].Quantile(quantile / 100.0))
             {
                 return;
             }
@@ -151,8 +169,8 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
             }
             else
             {
-                _variances[sample.Name] += (variance - _variances[sample.Name]) / _variancesAveraged[sample.Name];
                 _variancesAveraged[sample.Name]++;
+                _variances[sample.Name] += (variance - _variances[sample.Name]) / _variancesAveraged[sample.Name];
             }
         }
     }

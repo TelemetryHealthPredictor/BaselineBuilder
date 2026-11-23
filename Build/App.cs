@@ -45,23 +45,35 @@ namespace BaselineBuilderNew.Build
         {
             await _dbReader.InitAsync();
 
+            Console.WriteLine("Initialized DB.");
+
             R0Result r0 = await _R0Calculator.CalculateR0();
+
+            Console.WriteLine("Calculated R0.");
 
             _QcCalculator.Init(r0);
             QcResult qc = await _QcCalculator.CalculateQc();
 
+            Console.WriteLine("Calculated Qc.");
+
             _covPipeline.InitPipeline(qc, r0);
             await _covPipeline.BeginSimulationAsync();
             CovResult cov = await _covPipeline.GetCovarianceMatrix();
+
+            Console.WriteLine("Calculated COV.");
 
             _mdCusumPipeline.InitPipeline(qc, r0, cov);
             await _mdCusumPipeline.BeginSimulationAsync();
             MDPercentilesResult mdThresholds = await _mdCusumPipeline.GetMDPercentiles();
             CusumsPercentilesResult cusumThresholds = await _mdCusumPipeline.GetCusumPercentiles();
 
+            Console.WriteLine("Calculated MD & CUSUM Thresholds.");
+
             _cusumRawPipeline.InitPipeline(qc, r0, cusumThresholds);
             await _cusumRawPipeline.BeginSimulationAsync();
             CusumRawPercentilesResult cusumRawThresholds = await _cusumRawPipeline.GetCusumRawThresholds();
+
+            Console.WriteLine("Calculated CusumRaw Thresholds.");
 
             _writer
                 .AddR0(r0)
@@ -70,6 +82,8 @@ namespace BaselineBuilderNew.Build
                 .AddMDThresholds(mdThresholds)
                 .AddCusumThresholds(cusumThresholds)
                 .AddCusumRawThresholds(cusumRawThresholds);
+
+            Console.WriteLine("Writing CSV files.");
 
             _writer.WriteBaselineCSVFiles();
         }

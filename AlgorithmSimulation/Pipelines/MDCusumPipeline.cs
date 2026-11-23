@@ -6,8 +6,10 @@ using AlgoLib.Algorithms.Abstractions;
 using AlgoLib.Data.Result_Objects;
 using BaselineBuilderNew.AlgorithmSimulation.AlgorithmHandlers;
 using BaselineBuilderNew.AlgorithmSimulation.Calculators;
+using BaselineBuilderNew.Config.Settings;
 using BaselineBuilderNew.Data.ResultObjects;
 using BaselineBuilderNew.IO.Input.Abstractions;
+using Microsoft.Extensions.Options;
 using ParameterDataLib;
 
 namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
@@ -36,12 +38,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         public MDCusumPipeline
         (
             IDatabaseReader reader,
+            IOptions<CalcSettings> settings,
             KalmanSim kalmanSim,
             MahalanobisSim mahalanobis,
             CusumSim cusum,
             PercentilesCalculator mdPercentilesCalc,
             CusumPercentilesCalculator cusumPercentilesCalc
-        ) : base(reader)
+        ) : base(reader, settings)
         {
             _kalmanSim = kalmanSim;
             _mahalanobisSim = mahalanobis;

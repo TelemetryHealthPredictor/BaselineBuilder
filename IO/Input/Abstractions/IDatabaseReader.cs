@@ -11,9 +11,9 @@ namespace BaselineBuilderNew.IO.Input.Abstractions
     {
         public Task InitAsync();
 
-        public Task<IReadOnlyList<NamedSample>> GetInitialSamplesAsync();
+        public Task<NamedSample[]> GetInitialSamplesAsync(FlightDocument flight);
 
-        public Task<IReadOnlyList<NamedSample>?> GetNextSamplesAsync();
+        public Task<NamedSample[]> GetNextSamplesAsync();
 
         public int GetTHPFieldCount();
 
@@ -23,6 +23,6 @@ namespace BaselineBuilderNew.IO.Input.Abstractions
 
         public Task<IReadOnlyList<ParameterData[]>> GetInitialPacketsAsync(FlightDocument flight);
 
-        public Task<IReadOnlyList<ParameterData[]>> GetNextPacketsAsync(string flightID);
+        public Task<IReadOnlyList<ParameterData[]>> GetNextPacketsAsync();
     }
 }

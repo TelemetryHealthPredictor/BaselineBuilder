@@ -1,9 +1,11 @@
-﻿using BaselineBuilderNew.Data.MongoOutputs;
+﻿using BaselineBuilderNew.Config.Settings;
+using BaselineBuilderNew.Data.MongoOutputs;
 using BaselineBuilderNew.Data.ResultObjects;
 using BaselineBuilderNew.IO.Input.Abstractions;
 using BaselineBuilderNew.KalmanFilterBaseline.Abstractions;
 using MathNet.Numerics.LinearAlgebra;
 using MathNet.Numerics.Statistics;
+using Microsoft.Extensions.Options;
 using MongoLib.Documents;
 using ThpUtils.Naming;
 
@@ -14,6 +16,8 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
         private readonly IDatabaseReader _reader;
         private readonly NamingData _namingData;
 
+        private readonly int _requiredNumOfFlights;
+
         // R0 diagonal — set by Init(), indexed parallel to _namingData.ParameterNames
         private Vector<double> _r0Diagonal = null!;
 
@@ -23,10 +27,12 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
         private Dictionary<string, double?> _prevValue;
         private Dictionary<string, DateTime?> _prevTimestamp;
 
-        public QcCalculator(IDatabaseReader reader, NamingData namingData)
+        public QcCalculator(IDatabaseReader reader, NamingData namingData, IOptions<CalcSettings> calcSettings)
         {
             _reader = reader;
             _namingData = namingData;
+
+            _requiredNumOfFlights = calcSettings.Value.RequiredNumOfFlights;
 
             _deltaZ = [];
             _deltaT = [];
@@ -50,22 +56,23 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
         public async Task<QcResult> CalculateQc()
         {
             // Collect all samples via the reader, accumulating Δz and Δt per variable.
-            IReadOnlyList<NamedSample> samples = await _reader.GetInitialSamplesAsync();
+            FlightDocument[] flights = await _reader.GetFlightsAsync(_requiredNumOfFlights);
 
-            foreach (NamedSample sample in samples)
+            foreach (FlightDocument flight in flights)
             {
-                AccumulateDeltas(sample);
-            }
+                ResetPreviousValues();
 
-            IReadOnlyList<NamedSample>? next = await _reader.GetNextSamplesAsync();
-            while (next is not null)
-            {
-                foreach (NamedSample sample in next)
+                NamedSample[] samples = await _reader.GetInitialSamplesAsync(flight);
+
+                while (samples.Length > 0)
                 {
-                    AccumulateDeltas(sample);
-                }
+                    foreach (NamedSample sample in samples)
+                    {
+                        AccumulateDeltas(sample);
+                    }
 
-                next = await _reader.GetNextSamplesAsync();
+                    samples = await _reader.GetNextSamplesAsync();
+                }
             }
 
             // Build the Qc vector, one entry per parameter (same ordering as R0).
@@ -96,8 +103,6 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
             };
         }
 
-        // ------------------------------------------------------------------ //
-
         private void AccumulateDeltas(NamedSample sample)
         {
             string name = sample.Name;
@@ -112,6 +117,15 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
 
             _prevValue[name] = value;
             _prevTimestamp[name] = ts;
+        }
+
+        private void ResetPreviousValues()
+        {
+            foreach (string fieldName in _namingData.ParameterNames)
+            {
+                _prevValue[fieldName] = null;
+                _prevTimestamp[fieldName] = null;
+            }
         }
     }
 }

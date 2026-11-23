@@ -12,91 +12,58 @@ namespace BaselineBuilderNew.IO.Input.Implementations
 {
     internal class MongoDBReader : IDatabaseReader
     {
+        private const int BatchSizeInMinutes = 5;
+
         private readonly ITelemetryReader _reader;
 
-        private IReadOnlyList<FlightDocument> _flights = null!;
         private IReadOnlyList<FieldCatalogDocument> _fieldCatalog = null!;
-
-        private int _flightIndex;
-        private DateTime _readUntil;
 
 
         private string? _currentFlightID;
         private DateTime _readPacketsUntil;
 
+        private string? _currentSamplesFlightID;
+        private DateTime _readSamplesUntil;
+
 
         public MongoDBReader(ITelemetryReader reader)
         {
             _reader = reader;
-
-            _flightIndex = 0;
         }
 
 
         public async Task InitAsync()
         {
-            _flights = await _reader.GetFlightsAsync();
             _fieldCatalog = await _reader.GetFieldCatalogAsync();
         }
 
-        public async Task<IReadOnlyList<NamedSample>> GetInitialSamplesAsync()
+        public async Task<NamedSample[]> GetInitialSamplesAsync(FlightDocument flight)
         {
-            DateTime firstStartTime = FlightStartTime(_flightIndex);
-            DateTime? firstEndTime = FlightEndTime(_flightIndex);
+            DateTime from = flight.StartTime;
+            DateTime to = from + TimeSpan.FromMinutes(BatchSizeInMinutes);
 
-            if (firstEndTime is null)
-            {
-                if (_flightIndex >= _flights.Count)
-                {
-                    throw new Exception("Every flight in the database is open");
-                }
+            _currentSamplesFlightID = flight.Id;
+            _readSamplesUntil = to;
 
-                _flightIndex++;
-                return await GetInitialSamplesAsync();
-            }
-            
-            _readUntil = firstStartTime + TimeSpan.FromMinutes(1);
-
-            if (_readUntil > firstEndTime)
-            {
-                _flightIndex++;
-            }
-
-            return await GetMinuteOfSamples(firstStartTime);
+            return await GetSamplesAsync(flight.Id, from, to);
         }
 
-        public async Task<IReadOnlyList<NamedSample>?> GetNextSamplesAsync()
+        public async Task<NamedSample[]> GetNextSamplesAsync()
         {
-            List<NamedSample> result = await GetMinuteOfSamples(_readUntil);
-
-            if (result.Count == 0)
+            if (_currentSamplesFlightID is null)
             {
-                _flightIndex = 0;
-                return null;
+                throw new NullReferenceException("GetInitialSamples must be called before GetNext...");
             }
 
-            _readUntil += TimeSpan.FromMinutes(1);
+            DateTime from = _readSamplesUntil;
+            DateTime to = _readSamplesUntil + TimeSpan.FromMinutes(BatchSizeInMinutes);
+            _readSamplesUntil = to;
 
-            if (NextFlight())
-            {
-                _flightIndex++;
-                _readUntil = _flights[_flightIndex].StartTime;
-            }
-
-            return result;
+            return await GetSamplesAsync(_currentSamplesFlightID, from, to);
         }
 
-        private DateTime FlightStartTime(int flightIndex)
-        {
-            return _flights[flightIndex].StartTime;
-        }
 
-        private DateTime? FlightEndTime(int flightIndex)
-        {
-            return _flights[flightIndex].EndTime;
-        }
-
-        private async Task<List<NamedSample>> GetMinuteOfSamples(DateTime from)
+        private async Task<NamedSample[]> GetSamplesAsync(string flightID, DateTime from, DateTime to)
         {
             List<NamedSample> result = [];
 
@@ -106,10 +73,10 @@ namespace BaselineBuilderNew.IO.Input.Implementations
                 {
                     IReadOnlyList<TelemetrySample> fieldSamples = await _reader.GetSamplesAsync
                     (
-                        _flights[_flightIndex].Id,
+                        flightID,
                         field.Field,
                         from,
-                        from + TimeSpan.FromMinutes(1)
+                        to
                     );
 
                     foreach (TelemetrySample sample in fieldSamples)
@@ -119,17 +86,7 @@ namespace BaselineBuilderNew.IO.Input.Implementations
                 }
             }
 
-            return result;
-        }
-
-        private bool NextFlight()
-        {
-            if (_readUntil > FlightEndTime(_flightIndex))
-            {
-                return true;
-            }
-
-            return false;
+            return result.ToArray();
         }
 
         public int GetTHPFieldCount()
@@ -144,15 +101,15 @@ namespace BaselineBuilderNew.IO.Input.Implementations
 
         public async Task<FlightDocument[]> GetFlightsAsync(int amount)
         {
-            FlightDocument[] flights = (FlightDocument[]) await _reader.GetFlightsAsync();
+            FlightDocument[] flights = (await _reader.GetFlightsAsync()).ToArray();
 
-            return [.. flights.Take(amount)];
+            return [.. flights.Reverse().Take(amount)];
         }
 
         public async Task<IReadOnlyList<ParameterData[]>> GetInitialPacketsAsync(FlightDocument flight)
         {
             DateTime from = flight.StartTime;
-            DateTime to = from + TimeSpan.FromMinutes(1);
+            DateTime to = from + TimeSpan.FromMinutes(BatchSizeInMinutes);
 
             _currentFlightID = flight.Id;
             _readPacketsUntil = to;
@@ -160,12 +117,18 @@ namespace BaselineBuilderNew.IO.Input.Implementations
             return await GetPacketsAsync(flight.Id, from, to);
         }
 
-        public async Task<IReadOnlyList<ParameterData[]>> GetNextPacketsAsync(string flightID)
+        public async Task<IReadOnlyList<ParameterData[]>> GetNextPacketsAsync()
         {
-            DateTime from = _readPacketsUntil;
-            DateTime to = _readPacketsUntil += TimeSpan.FromMinutes(1);
+            if (_currentFlightID is null)
+            {
+                throw new NullReferenceException("GetInitialPackets must be called before GetNext...");
+            }
 
-            return await GetPacketsAsync(flightID, from, to);
+            DateTime from = _readPacketsUntil;
+            DateTime to = _readPacketsUntil + TimeSpan.FromMinutes(BatchSizeInMinutes);
+            _readPacketsUntil += TimeSpan.FromMinutes(BatchSizeInMinutes);
+
+            return await GetPacketsAsync(_currentFlightID, from, to);
         }
 
         private async Task<IReadOnlyList<ParameterData[]>> GetPacketsAsync(string flightID, DateTime from, DateTime to)

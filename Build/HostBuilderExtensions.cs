@@ -34,6 +34,9 @@ namespace BaselineBuilderNew.Build
             builder.Services.Configure<BaselineSettings>(
                 builder.Configuration.GetSection(nameof(BaselineSettings)));
 
+            builder.Services.Configure<CalcSettings>(
+                builder.Configuration.GetSection(nameof(CalcSettings)));
+
             builder.Services.AddSingleton<IDatabaseReader, MongoDBReader>();
 
             builder.Services.AddSingleton<IR0Calculator, R0Calculator>();

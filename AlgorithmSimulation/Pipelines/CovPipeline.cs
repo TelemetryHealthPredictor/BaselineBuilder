@@ -4,8 +4,10 @@ using System.Text;
 using System.Threading.Tasks.Dataflow;
 using AlgoLib.Data.Result_Objects;
 using BaselineBuilderNew.AlgorithmSimulation.AlgorithmHandlers;
+using BaselineBuilderNew.Config.Settings;
 using BaselineBuilderNew.Data.ResultObjects;
 using BaselineBuilderNew.IO.Input.Abstractions;
+using Microsoft.Extensions.Options;
 using ParameterDataLib;
 
 namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
@@ -24,9 +26,10 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         public CovPipeline
         (
             IDatabaseReader reader,
+            IOptions<CalcSettings> settings,
             KalmanSim kalmanSim,
             CovCalculator covCalculator
-        ) : base(reader)
+        ) : base(reader, settings)
         {
             _kalmanSim = kalmanSim;
             _covCalculator = covCalculator;

@@ -5,8 +5,10 @@ using System.Threading.Tasks.Dataflow;
 using AlgoLib.Data.Result_Objects;
 using BaselineBuilderNew.AlgorithmSimulation.AlgorithmHandlers;
 using BaselineBuilderNew.AlgorithmSimulation.Calculators;
+using BaselineBuilderNew.Config.Settings;
 using BaselineBuilderNew.Data.ResultObjects;
 using BaselineBuilderNew.IO.Input.Abstractions;
+using Microsoft.Extensions.Options;
 using ParameterDataLib;
 
 namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
@@ -28,10 +30,11 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         public CusumRawPipeline
         (
             IDatabaseReader reader,
+            IOptions<CalcSettings> settings,
             KalmanSim kalmanSim,
             CusumSim cusum,
             PercentilesCalculator percentilesCalc
-        ) : base(reader)
+        ) : base(reader, settings)
         {
             _kalmanSim = kalmanSim;
             _cusumSim = cusum;

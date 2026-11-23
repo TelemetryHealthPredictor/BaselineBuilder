@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks.Dataflow;
+using BaselineBuilderNew.Config.Settings;
 using BaselineBuilderNew.IO.Input.Abstractions;
+using Microsoft.Extensions.Options;
 using MongoLib.Documents;
 using ParameterDataLib;
 
@@ -10,7 +12,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 {
     internal abstract class SimulationPipeline
     {
-        protected const int FlightsNeededForBaseline = 20;
+        protected readonly int _requiredNumOfFlights;
 
         protected readonly IDatabaseReader _reader;
 
@@ -19,9 +21,11 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
         protected Task Completion { get; init; } = null!;
 
-        protected SimulationPipeline(IDatabaseReader reader)
+        protected SimulationPipeline(IDatabaseReader reader, IOptions<CalcSettings> calcSettings)
         {
             _reader = reader;
+
+            _requiredNumOfFlights = calcSettings.Value.RequiredNumOfFlights;
 
             _blockOptions = new ExecutionDataflowBlockOptions()
             {
@@ -36,7 +40,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
         public async Task BeginSimulationAsync()
         {
-            FlightDocument[] flights = await _reader.GetFlightsAsync(FlightsNeededForBaseline);
+            FlightDocument[] flights = await _reader.GetFlightsAsync(_requiredNumOfFlights);
 
             foreach (FlightDocument flight in flights)
             {
@@ -49,7 +53,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
                     await SendAsync(batch);
                 }
 
-                batches = await _reader.GetNextPacketsAsync(flight.Id);
+                batches = await _reader.GetNextPacketsAsync();
 
                 while (batches.Count > 0)
                 {
@@ -57,6 +61,8 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
                     {
                         await SendAsync(batch);
                     }
+
+                    batches = await _reader.GetNextPacketsAsync();
                 }
             }
 
