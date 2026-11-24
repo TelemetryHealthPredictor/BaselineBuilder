@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Text;
 using AlgoLib.Algorithms.Abstractions;
 using AlgoLib.Data.Result_Objects;
-using BaselineBuilderNew.Config.Settings;
 using BaselineBuilderNew.Data.BaselineData;
 using BaselineBuilderNew.Data.ResultObjects;
 using MathNet.Numerics.LinearAlgebra;
-using Microsoft.Extensions.Options;
 using ParameterDataLib;
 
 namespace BaselineBuilderNew.AlgorithmSimulation.AlgorithmHandlers

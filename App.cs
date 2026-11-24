@@ -21,6 +21,8 @@ namespace BaselineBuilderNew
 
         private readonly BaselineCSVWriter _writer;
 
+        private readonly IHostApplicationLifetime _lifetime;
+
         public App
         (
             IR0Calculator r0Calculator,
@@ -29,7 +31,8 @@ namespace BaselineBuilderNew
             CovPipeline covPipeline,
             MDCusumPipeline mdCusumPipeline,
             CusumRawPipeline cusumRawPipeline,
-            BaselineCSVWriter csvWriter
+            BaselineCSVWriter csvWriter,
+            IHostApplicationLifetime lifetime
         )
         {
             _R0Calculator = r0Calculator;
@@ -39,6 +42,7 @@ namespace BaselineBuilderNew
             _mdCusumPipeline = mdCusumPipeline;
             _cusumRawPipeline = cusumRawPipeline;
             _writer = csvWriter;
+            _lifetime = lifetime;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -94,6 +98,10 @@ namespace BaselineBuilderNew
             Console.WriteLine("Writing CSV files.");
 
             _writer.WriteBaselineCSVFiles();
+
+            Console.WriteLine("Baseline written. Shutting down.");
+
+            _lifetime.StopApplication();
         }
     }
 }
