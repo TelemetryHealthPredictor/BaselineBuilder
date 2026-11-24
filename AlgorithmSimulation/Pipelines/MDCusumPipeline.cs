@@ -22,12 +22,12 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private readonly PercentilesCalculator _mdPercentilesCalc;
         private readonly CusumPercentilesCalculator _cusumPercentilesCalc;
 
-        private readonly TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock;
-        private readonly BroadcastBlock<KalmanFilterResult> _broadcastBlock;
-        private readonly TransformBlock<KalmanFilterResult, double> _mahalanobisBlock;
-        private readonly TransformBlock<KalmanFilterResult, double[]> _cusumBlock;
-        private readonly ActionBlock<double> _mdPercentilesBlock;
-        private readonly ActionBlock<double[]> _cusumPercentilesBlock;
+        private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
+        private BroadcastBlock<KalmanFilterResult> _broadcastBlock = null!;
+        private TransformBlock<KalmanFilterResult, double> _mahalanobisBlock = null!;
+        private TransformBlock<KalmanFilterResult, double[]> _cusumBlock = null!;
+        private ActionBlock<double> _mdPercentilesBlock = null!;
+        private ActionBlock<double[]> _cusumPercentilesBlock = null!;
 
 
         private QcResult? _qc;
@@ -51,7 +51,10 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             _cusumSim = cusum;
             _mdPercentilesCalc = mdPercentilesCalc;
             _cusumPercentilesCalc = cusumPercentilesCalc;
+        }
 
+        protected override void BuildBlocks()
+        {
             _kalmanBlock = new TransformManyBlock<ParameterData[], KalmanFilterResult>
             (
                 _kalmanSim.KalmanDelegate,
