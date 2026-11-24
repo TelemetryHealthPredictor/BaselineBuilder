@@ -27,9 +27,6 @@ namespace BaselineBuilderNew.Build
             builder.Services.AddMongoLib(builder.Configuration);
             builder.Services.AddNaming(builder.Configuration);
 
-            builder.Services.Configure<KafkaSettings>(
-                builder.Configuration.GetSection(nameof(KafkaSettings)));
-
             builder.Services.Configure<BaselineSettings>(
                 builder.Configuration.GetSection(nameof(BaselineSettings)));
 
