@@ -15,6 +15,7 @@ namespace BaselineBuilderNew
         private readonly IR0Calculator _R0Calculator;
         private readonly IQcCalculator _QcCalculator;
         private readonly IDatabaseReader _dbReader;
+        private readonly ZStatsPipeline _zStatsPipeline;
         private readonly CovPipeline _covPipeline;
         private readonly MDCusumPipeline _mdCusumPipeline;
         private readonly CusumRawPipeline _cusumRawPipeline;
@@ -28,6 +29,7 @@ namespace BaselineBuilderNew
             IR0Calculator r0Calculator,
             IQcCalculator qcCalculator,
             IDatabaseReader dbReader,
+            ZStatsPipeline zStatsPipeline,
             CovPipeline covPipeline,
             MDCusumPipeline mdCusumPipeline,
             CusumRawPipeline cusumRawPipeline,
@@ -38,6 +40,7 @@ namespace BaselineBuilderNew
             _R0Calculator = r0Calculator;
             _QcCalculator = qcCalculator;
             _dbReader = dbReader;
+            _zStatsPipeline = zStatsPipeline;
             _covPipeline = covPipeline;
             _mdCusumPipeline = mdCusumPipeline;
             _cusumRawPipeline = cusumRawPipeline;
@@ -68,20 +71,32 @@ namespace BaselineBuilderNew
                 Console.WriteLine(variableProcessNoise);
             }
 
-            _covPipeline.InitPipeline(qc, r0);
+            _zStatsPipeline.InitPipeline(qc, r0);
+            await _zStatsPipeline.BeginSimulationAsync();
+            ZVectorPercentileResult zCutOff = await _zStatsPipeline.GetZVectorPercentile();
+            CusumSlacksResult cusumSlacks = await _zStatsPipeline.GetCusumSlacks();
+
+            Console.WriteLine($"Calculated z-vector cut-off: {zCutOff.Threshold}");
+            Console.WriteLine("Calculated CUSUM slacks:");
+            foreach (double slack in cusumSlacks.Slacks)
+            {
+                Console.WriteLine(slack);
+            }
+
+            _covPipeline.InitPipeline(qc, r0, zCutOff);
             await _covPipeline.BeginSimulationAsync();
             CovResult cov = await _covPipeline.GetCovarianceMatrix();
 
             Console.WriteLine("Calculated COV.");
 
-            _mdCusumPipeline.InitPipeline(qc, r0, cov);
+            _mdCusumPipeline.InitPipeline(qc, r0, cov, cusumSlacks);
             await _mdCusumPipeline.BeginSimulationAsync();
             MDPercentilesResult mdThresholds = await _mdCusumPipeline.GetMDPercentiles();
             CusumsPercentilesResult cusumThresholds = await _mdCusumPipeline.GetCusumPercentiles();
 
             Console.WriteLine("Calculated MD & CUSUM Thresholds.");
 
-            _cusumRawPipeline.InitPipeline(qc, r0, cusumThresholds);
+            _cusumRawPipeline.InitPipeline(qc, r0, cusumSlacks, cusumThresholds);
             await _cusumRawPipeline.BeginSimulationAsync();
             CusumRawPercentilesResult cusumRawThresholds = await _cusumRawPipeline.GetCusumRawThresholds();
 
@@ -91,6 +106,7 @@ namespace BaselineBuilderNew
                 .AddR0(r0)
                 .AddQc(qc)
                 .AddCov(cov)
+                .AddCusumSlacks(cusumSlacks)
                 .AddMDThresholds(mdThresholds)
                 .AddCusumThresholds(cusumThresholds)
                 .AddCusumRawThresholds(cusumRawThresholds);

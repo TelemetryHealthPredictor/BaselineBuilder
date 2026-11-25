@@ -56,7 +56,10 @@ namespace BaselineBuilderNew.Build
             });
             builder.Services.AddSingleton<PercentilesCalculator>();
             builder.Services.AddSingleton<CusumPercentilesCalculator>();
+            builder.Services.AddSingleton<ZVectorPercentileCalculator>();
+            builder.Services.AddSingleton<CusumSlackCalculator>();
 
+            builder.Services.AddSingleton<ZStatsPipeline>();
             builder.Services.AddSingleton<CovPipeline>();
             builder.Services.AddSingleton<CusumRawPipeline>();
             builder.Services.AddSingleton<MDCusumPipeline>();

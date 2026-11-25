@@ -1,10 +1,15 @@
 ﻿using AlgoLib.Data.Result_Objects;
 using BaselineBuilderNew.Data.ResultObjects;
+using BaselineBuilderNew.AlgorithmSimulation.Calculators;
 using MathNet.Numerics.LinearAlgebra;
 
 internal class CovCalculator
 {
     private readonly int _dimension;
+
+    // z-vectors whose ‖z‖² is above this cut-off are left out of the covariance
+    private double? _threshold;
+    private long _trimmedCount;
 
     private long _count;
     private readonly double[] _mean;
@@ -19,9 +24,25 @@ internal class CovCalculator
         _coMoment = new double[dimension, dimension];
     }
 
+    public void Init(ZVectorPercentileResult cutOff)
+    {
+        _threshold = cutOff.Threshold;
+    }
+
     public void RecalculateCovariance(KalmanFilterResult result)
     {
+        if (_threshold is null)
+        {
+            throw new InvalidOperationException($"{nameof(Init)} must be called first.");
+        }
+
         Vector<double> z = result.ParameterZScores;
+
+        if (ZVectorPercentileCalculator.IdentityDistanceSquared(z) > _threshold)
+        {
+            _trimmedCount++;
+            return;
+        }
 
         _count++;
 
@@ -42,6 +63,10 @@ internal class CovCalculator
 
     public CovResult GetCovarianceMatrix()
     {
+        long total = _count + _trimmedCount;
+        double trimmedPercent = total > 0 ? 100.0 * _trimmedCount / total : 0.0;
+        Console.WriteLine($"[CovCalculator] Kept {_count} z-vectors, trimmed {_trimmedCount} ({trimmedPercent:F2}%).");
+
         Matrix<double> cov = Matrix<double>.Build.Dense(_dimension, _dimension);
 
         for (int i = 0; i < _dimension; i++)

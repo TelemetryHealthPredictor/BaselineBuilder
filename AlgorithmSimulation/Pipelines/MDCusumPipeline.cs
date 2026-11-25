@@ -33,6 +33,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private QcResult? _qc;
         private R0Result? _r0;
         private CovResult? _cov;
+        private CusumSlacksResult? _slacks;
 
 
         public MDCusumPipeline
@@ -100,14 +101,14 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
         protected override void InitSimulation()
         {
-            if (_qc is null || _r0 is null || _cov is null)
+            if (_qc is null || _r0 is null || _cov is null || _slacks is null)
             {
                 throw new NullReferenceException("Pipeline wasn't initialized");
             }
 
             _kalmanSim.Init(_qc, _r0);
             _mahalanobisSim.Init(_cov);
-            _cusumSim.InitForCusums();
+            _cusumSim.InitForCusums(_slacks);
         }
 
         protected override async Task SendAsync(ParameterData[] batch)
@@ -121,11 +122,12 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         }
 
 
-        public void InitPipeline(QcResult qc, R0Result r0, CovResult cov)
+        public void InitPipeline(QcResult qc, R0Result r0, CovResult cov, CusumSlacksResult slacks)
         {
             _r0 = r0;
             _qc = qc;
             _cov = cov;
+            _slacks = slacks;
         }
 
         public async Task<MDPercentilesResult> GetMDPercentiles()

@@ -20,11 +20,12 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private readonly PercentilesCalculator _percentilesCalc;
 
         private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
-        private TransformBlock<KalmanFilterResult, double> _cusumRawBlock = null!;
+        private TransformManyBlock<KalmanFilterResult, double> _cusumRawBlock = null!;
         private ActionBlock<double> _percentilesBlock = null!;
 
         private QcResult? _qc;
         private R0Result? _r0;
+        private CusumSlacksResult? _slacks;
         private CusumsPercentilesResult? _thresholds;
 
         public CusumRawPipeline
@@ -49,7 +50,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
                 _blockOptions
             );
 
-            _cusumRawBlock = new TransformBlock<KalmanFilterResult, double>
+            _cusumRawBlock = new TransformManyBlock<KalmanFilterResult, double>
             (
                 _cusumSim.CusumRawDelegate,
                 _blockOptions
@@ -71,13 +72,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
         protected override void InitSimulation()
         {
-            if (_r0 is null || _qc is null || _thresholds is null)
+            if (_r0 is null || _qc is null || _slacks is null || _thresholds is null)
             {
                 throw new NullReferenceException("Pipeline wasn't initialized");
             }
 
             _kalmanSim.Init(_qc, _r0);
-            _cusumSim.InitForCusumRaw(_thresholds);
+            _cusumSim.InitForCusumRaw(_slacks, _thresholds);
         }
 
         protected override async Task SendAsync(ParameterData[] batch)
@@ -91,10 +92,11 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         }
 
 
-        public void InitPipeline(QcResult qc, R0Result r0, CusumsPercentilesResult thresholds)
+        public void InitPipeline(QcResult qc, R0Result r0, CusumSlacksResult slacks, CusumsPercentilesResult thresholds)
         {
             _r0 = r0;
             _qc = qc;
+            _slacks = slacks;
             _thresholds = thresholds;
 
             // PercentilesCalculator is a singleton shared with MDCusumPipeline (MD distances).

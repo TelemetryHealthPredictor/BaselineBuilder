@@ -17,18 +17,12 @@ namespace BaselineBuilderNew.Config.Builders
         public static CusumData BuildCusumData(IServiceProvider provider)
         {
             BaselineSettings settings = provider.GetRequiredService<IOptions<BaselineSettings>>().Value;
-            NamingData namingData = provider.GetRequiredService<NamingData>();
 
-            string key = settings.CusumSlacksKey;
-
-            double slackValue = GetElement(provider, key);
-
-            double[] slacks = new double[namingData.ParameterNames.Length];
-            Array.Fill(slacks, slackValue);
+            string key = settings.CusumDriftSizeKey;
 
             return new CusumData()
             {
-                SlackValues = slacks
+                DriftSize = GetElement(provider, key)
             };
         }
 

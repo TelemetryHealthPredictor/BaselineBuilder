@@ -75,10 +75,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         }
 
 
-        public void InitPipeline(QcResult qc, R0Result r0)
+        public void InitPipeline(QcResult qc, R0Result r0, ZVectorPercentileResult cutOff)
         {
             _r0 = r0;
             _qc = qc;
+
+            // Once for all flights: the cut-off doesn't change between flights
+            _covCalculator.Init(cutOff);
         }
 
 
