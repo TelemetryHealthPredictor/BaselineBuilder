@@ -19,11 +19,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private readonly KalmanSim _kalmanSim;
         private readonly ZVectorPercentileCalculator _zVectorPercentileCalc;
         private readonly CusumSlackCalculator _cusumSlackCalc;
+        private readonly ZDiagnosticsCalculator _zDiagnosticsCalc;
 
         private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
         private BroadcastBlock<KalmanFilterResult> _broadcastBlock = null!;
         private ActionBlock<KalmanFilterResult> _zVectorPercentileBlock = null!;
         private ActionBlock<KalmanFilterResult> _cusumSlackBlock = null!;
+        private ActionBlock<KalmanFilterResult> _zDiagnosticsBlock = null!;
 
         private QcResult? _qc;
         private R0Result? _r0;
@@ -34,12 +36,14 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             IOptions<CalcSettings> settings,
             KalmanSim kalmanSim,
             ZVectorPercentileCalculator zVectorPercentileCalc,
-            CusumSlackCalculator cusumSlackCalc
+            CusumSlackCalculator cusumSlackCalc,
+            ZDiagnosticsCalculator zDiagnosticsCalc
         ) : base(reader, settings)
         {
             _kalmanSim = kalmanSim;
             _zVectorPercentileCalc = zVectorPercentileCalc;
             _cusumSlackCalc = cusumSlackCalc;
+            _zDiagnosticsCalc = zDiagnosticsCalc;
         }
 
         protected override void BuildBlocks()
@@ -50,7 +54,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
                 _blockOptions
             );
 
-            // Both calculators only read the result, and its z-vector is a clone, so sharing it is safe
+            // The calculators only read the result, and its z-vector is a clone, so sharing it is safe
             _broadcastBlock = new BroadcastBlock<KalmanFilterResult>(res => res, _blockOptions);
 
             _zVectorPercentileBlock = new ActionBlock<KalmanFilterResult>
@@ -65,11 +69,19 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
                 _blockOptions
             );
 
+            // Logging only (sanity checks), not part of the profile
+            _zDiagnosticsBlock = new ActionBlock<KalmanFilterResult>
+            (
+                _zDiagnosticsCalc.AddZScores,
+                _blockOptions
+            );
+
             _kalmanBlock.LinkTo(_broadcastBlock, _linkOptions);
             _broadcastBlock.LinkTo(_zVectorPercentileBlock, _linkOptions);
             _broadcastBlock.LinkTo(_cusumSlackBlock, _linkOptions);
+            _broadcastBlock.LinkTo(_zDiagnosticsBlock, _linkOptions);
 
-            Completion = Task.WhenAll(_zVectorPercentileBlock.Completion, _cusumSlackBlock.Completion);
+            Completion = Task.WhenAll(_zVectorPercentileBlock.Completion, _cusumSlackBlock.Completion, _zDiagnosticsBlock.Completion);
         }
 
         protected override void InitSimulation()
@@ -109,6 +121,12 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         {
             await Completion;
             return _cusumSlackCalc.GetResult();
+        }
+
+        public async Task LogZDiagnostics()
+        {
+            await Completion;
+            _zDiagnosticsCalc.LogDiagnostics();
         }
     }
 }

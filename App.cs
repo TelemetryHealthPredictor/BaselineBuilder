@@ -83,6 +83,8 @@ namespace BaselineBuilderNew
                 Console.WriteLine(slack);
             }
 
+            await _zStatsPipeline.LogZDiagnostics();
+
             _covPipeline.InitPipeline(qc, r0, zCutOff);
             await _covPipeline.BeginSimulationAsync();
             CovResult cov = await _covPipeline.GetCovarianceMatrix();
