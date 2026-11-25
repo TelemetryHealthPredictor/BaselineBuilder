@@ -75,8 +75,16 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
                 {
                     throw new InvalidOperationException($"Simulation failed on flight {flight.Id}", ex);
                 }
+
+                // Every frame of this flight has been processed, so per-flight results are complete
+                OnFlightCompleted();
             }
         }
+
+        /// <summary>
+        /// Called once per flight, after all of the flight's frames have drained through the pipeline.
+        /// </summary>
+        protected virtual void OnFlightCompleted() { }
 
         /// <summary>
         /// Creates and links a new set of dataflow blocks and sets <see cref="Completion"/>.

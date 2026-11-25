@@ -20,7 +20,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private readonly MahalanobisSim _mahalanobisSim;
         private readonly CusumSim _cusumSim;
         private readonly PercentilesCalculator _mdPercentilesCalc;
-        private readonly CusumPercentilesCalculator _cusumPercentilesCalc;
+        private readonly CusumThresholdsCalculator _cusumPercentilesCalc;
 
         private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
         private BroadcastBlock<KalmanFilterResult> _broadcastBlock = null!;
@@ -44,7 +44,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             MahalanobisSim mahalanobis,
             CusumSim cusum,
             PercentilesCalculator mdPercentilesCalc,
-            CusumPercentilesCalculator cusumPercentilesCalc
+            CusumThresholdsCalculator cusumPercentilesCalc
         ) : base(reader, settings)
         {
             _kalmanSim = kalmanSim;
@@ -82,7 +82,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
             _cusumPercentilesBlock = new ActionBlock<double[]>
             (
-                _cusumPercentilesCalc.RecalculatePercentiles,
+                _cusumPercentilesCalc.RecalculateThresholds,
                 _blockOptions
             );
 
@@ -119,6 +119,11 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         protected override void SignalCompletion()
         {
             _kalmanBlock.Complete();
+        }
+
+        protected override void OnFlightCompleted()
+        {
+            _cusumPercentilesCalc.EndFlight();
         }
 
 

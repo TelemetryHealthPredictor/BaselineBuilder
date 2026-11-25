@@ -33,10 +33,10 @@ namespace BaselineBuilderNew.AlgorithmSimulation.AlgorithmHandlers
             _cusum.ComputeAnomalies();
             double cusumRaw = _cusum.ComputeCusumRaw();
 
-            if (cusumRaw == 0)
-            {
-                return [];
-            }
+            //if (cusumRaw == 0)
+            //{
+            //    return [];
+            //}
 
             return [cusumRaw];
         }

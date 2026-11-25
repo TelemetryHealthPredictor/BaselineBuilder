@@ -55,7 +55,7 @@ namespace BaselineBuilderNew.Build
                 return new CovCalculator(namingData.ParameterNames.Length);
             });
             builder.Services.AddSingleton<PercentilesCalculator>();
-            builder.Services.AddSingleton<CusumPercentilesCalculator>();
+            builder.Services.AddSingleton<CusumThresholdsCalculator>();
             builder.Services.AddSingleton<ZVectorPercentileCalculator>();
             builder.Services.AddSingleton<CusumSlackCalculator>();
 
