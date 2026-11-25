@@ -62,6 +62,28 @@ namespace BaselineBuilderNew.IO.Input.Implementations
             return await GetSamplesAsync(_currentSamplesFlightID, from, to);
         }
 
+        // Keeps its cursor in locals, so parallel callers can share this reader.
+        public async IAsyncEnumerable<NamedSample[]> ReadSampleBatchesAsync(FlightDocument flight)
+        {
+            DateTime from = flight.StartTime;
+
+            while (true)
+            {
+                DateTime to = from + TimeSpan.FromMinutes(BatchSizeInMinutes);
+
+                NamedSample[] batch = await GetSamplesAsync(flight.Id, from, to);
+
+                if (batch.Length == 0)
+                {
+                    yield break;
+                }
+
+                yield return batch;
+
+                from = to;
+            }
+        }
+
 
         private async Task<NamedSample[]> GetSamplesAsync(string flightID, DateTime from, DateTime to)
         {

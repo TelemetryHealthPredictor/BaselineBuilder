@@ -27,9 +27,6 @@ namespace BaselineBuilderNew.Build
             builder.Services.AddMongoLib(builder.Configuration);
             builder.Services.AddNaming(builder.Configuration);
 
-            builder.Services.Configure<KafkaSettings>(
-                builder.Configuration.GetSection(nameof(KafkaSettings)));
-
             builder.Services.Configure<BaselineSettings>(
                 builder.Configuration.GetSection(nameof(BaselineSettings)));
 
@@ -58,8 +55,12 @@ namespace BaselineBuilderNew.Build
                 return new CovCalculator(namingData.ParameterNames.Length);
             });
             builder.Services.AddSingleton<PercentilesCalculator>();
-            builder.Services.AddSingleton<CusumPercentilesCalculator>();
+            builder.Services.AddSingleton<CusumThresholdsCalculator>();
+            builder.Services.AddSingleton<ZVectorPercentileCalculator>();
+            builder.Services.AddSingleton<CusumSlackCalculator>();
+            builder.Services.AddSingleton<ZDiagnosticsCalculator>();
 
+            builder.Services.AddSingleton<ZStatsPipeline>();
             builder.Services.AddSingleton<CovPipeline>();
             builder.Services.AddSingleton<CusumRawPipeline>();
             builder.Services.AddSingleton<MDCusumPipeline>();

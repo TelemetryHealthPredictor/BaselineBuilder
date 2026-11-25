@@ -20,19 +20,20 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private readonly MahalanobisSim _mahalanobisSim;
         private readonly CusumSim _cusumSim;
         private readonly PercentilesCalculator _mdPercentilesCalc;
-        private readonly CusumPercentilesCalculator _cusumPercentilesCalc;
+        private readonly CusumThresholdsCalculator _cusumPercentilesCalc;
 
-        private readonly TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock;
-        private readonly BroadcastBlock<KalmanFilterResult> _broadcastBlock;
-        private readonly TransformBlock<KalmanFilterResult, double> _mahalanobisBlock;
-        private readonly TransformBlock<KalmanFilterResult, double[]> _cusumBlock;
-        private readonly ActionBlock<double> _mdPercentilesBlock;
-        private readonly ActionBlock<double[]> _cusumPercentilesBlock;
+        private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
+        private BroadcastBlock<KalmanFilterResult> _broadcastBlock = null!;
+        private TransformBlock<KalmanFilterResult, double> _mahalanobisBlock = null!;
+        private TransformBlock<KalmanFilterResult, double[]> _cusumBlock = null!;
+        private ActionBlock<double> _mdPercentilesBlock = null!;
+        private ActionBlock<double[]> _cusumPercentilesBlock = null!;
 
 
         private QcResult? _qc;
         private R0Result? _r0;
         private CovResult? _cov;
+        private CusumSlacksResult? _slacks;
 
 
         public MDCusumPipeline
@@ -43,7 +44,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             MahalanobisSim mahalanobis,
             CusumSim cusum,
             PercentilesCalculator mdPercentilesCalc,
-            CusumPercentilesCalculator cusumPercentilesCalc
+            CusumThresholdsCalculator cusumPercentilesCalc
         ) : base(reader, settings)
         {
             _kalmanSim = kalmanSim;
@@ -51,7 +52,10 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             _cusumSim = cusum;
             _mdPercentilesCalc = mdPercentilesCalc;
             _cusumPercentilesCalc = cusumPercentilesCalc;
+        }
 
+        protected override void BuildBlocks()
+        {
             _kalmanBlock = new TransformManyBlock<ParameterData[], KalmanFilterResult>
             (
                 _kalmanSim.KalmanDelegate,
@@ -78,7 +82,7 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
             _cusumPercentilesBlock = new ActionBlock<double[]>
             (
-                _cusumPercentilesCalc.RecalculatePercentiles,
+                _cusumPercentilesCalc.RecalculateThresholds,
                 _blockOptions
             );
 
@@ -97,14 +101,14 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
         protected override void InitSimulation()
         {
-            if (_qc is null || _r0 is null || _cov is null)
+            if (_qc is null || _r0 is null || _cov is null || _slacks is null)
             {
                 throw new NullReferenceException("Pipeline wasn't initialized");
             }
 
             _kalmanSim.Init(_qc, _r0);
             _mahalanobisSim.Init(_cov);
-            _cusumSim.InitForCusums();
+            _cusumSim.InitForCusums(_slacks);
         }
 
         protected override async Task SendAsync(ParameterData[] batch)
@@ -117,12 +121,18 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             _kalmanBlock.Complete();
         }
 
+        protected override void OnFlightCompleted()
+        {
+            _cusumPercentilesCalc.EndFlight();
+        }
 
-        public void InitPipeline(QcResult qc, R0Result r0, CovResult cov)
+
+        public void InitPipeline(QcResult qc, R0Result r0, CovResult cov, CusumSlacksResult slacks)
         {
             _r0 = r0;
             _qc = qc;
             _cov = cov;
+            _slacks = slacks;
         }
 
         public async Task<MDPercentilesResult> GetMDPercentiles()

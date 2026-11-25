@@ -1,11 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
 namespace BaselineBuilderNew.Data.BaselineData
 {
     internal class CusumData
     {
-        public double[] SlackValues { get; set; } = [];
+        /// <summary>
+        /// Drift size δ to catch, in standard deviations. Each parameter's slack is k = δ × its z-score std.
+        /// </summary>
+        public double DriftSize { get; set; }
     }
 }

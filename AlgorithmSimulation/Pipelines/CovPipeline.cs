@@ -20,8 +20,8 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private R0Result? _r0;
         private QcResult? _qc;
 
-        private readonly TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock;
-        private readonly ActionBlock<KalmanFilterResult> _covBlock;
+        private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
+        private ActionBlock<KalmanFilterResult> _covBlock = null!;
 
         public CovPipeline
         (
@@ -33,16 +33,19 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         {
             _kalmanSim = kalmanSim;
             _covCalculator = covCalculator;
+        }
 
+        protected override void BuildBlocks()
+        {
             _kalmanBlock = new TransformManyBlock<ParameterData[], KalmanFilterResult>
             (
-                kalmanSim.KalmanDelegate,
+                _kalmanSim.KalmanDelegate,
                 _blockOptions
             );
 
             _covBlock = new ActionBlock<KalmanFilterResult>
             (
-                covCalculator.RecalculateCovariance,
+                _covCalculator.RecalculateCovariance,
                 _blockOptions
             );
 
@@ -72,10 +75,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         }
 
 
-        public void InitPipeline(QcResult qc, R0Result r0)
+        public void InitPipeline(QcResult qc, R0Result r0, ZVectorPercentileResult cutOff)
         {
             _r0 = r0;
             _qc = qc;
+
+            // Once for all flights: the cut-off doesn't change between flights
+            _covCalculator.Init(cutOff);
         }
 
 

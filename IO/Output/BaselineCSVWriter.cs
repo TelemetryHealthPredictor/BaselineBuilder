@@ -16,6 +16,7 @@ namespace BaselineBuilderNew.IO.Output
         private QcResult? _qc;
         private R0Result? _r0;
         private CovResult? _cov;
+        private CusumSlacksResult? _cusumSlacks;
         private MDPercentilesResult? _mdThresholds;
         private CusumsPercentilesResult? _cusumThresholds;
         private CusumRawPercentilesResult? _cusumRawThresholds;
@@ -32,6 +33,7 @@ namespace BaselineBuilderNew.IO.Output
             ArgumentNullException.ThrowIfNull(_qc);
             ArgumentNullException.ThrowIfNull(_r0);
             ArgumentNullException.ThrowIfNull(_cov);
+            ArgumentNullException.ThrowIfNull(_cusumSlacks);
             ArgumentNullException.ThrowIfNull(_mdThresholds);
             ArgumentNullException.ThrowIfNull(_cusumThresholds);
             ArgumentNullException.ThrowIfNull(_cusumRawThresholds);
@@ -39,14 +41,16 @@ namespace BaselineBuilderNew.IO.Output
             string qcPath = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForQc);
             string r0Path = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForR0);
             string covPath = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForCov);
-            string mdThresholdsPath = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForMDThresholds);
+            string cusumSlacksPath = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForCusumSlacks);
+            string mdThresholdsPath =Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForMDThresholds);
             string cusumThresholdsPath = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForCusumThresholds);
             string cusumRawThresholdsPath = Path.Combine(_baselineSettings.BaselineFolderPath, _baselineSettings.NameForCusumRawThresholds);
 
             CSVWriter.WriteVector(qcPath, _qc.QcVector);
             CSVWriter.WriteMatrix(r0Path, Matrix<double>.Build.DiagonalOfDiagonalVector(_r0.R0DiagonalVector));
             CSVWriter.WriteMatrix(covPath, _cov.MDCovarianceMatrix);
-            CSVWriter.WriteDoubles(mdThresholdsPath, _mdThresholds.Thresholds);
+            CSVWriter.WriteDoubles(cusumSlacksPath, _cusumSlacks.Slacks);
+            CSVWriter.WriteDoubles(mdThresholdsPath,_mdThresholds.Thresholds);
             CSVWriter.WriteDoubles(cusumThresholdsPath, _cusumThresholds.ThresholdsForCusums);
             CSVWriter.WriteDoubles(cusumRawThresholdsPath, _cusumRawThresholds.Thresholds);
         }
@@ -66,6 +70,12 @@ namespace BaselineBuilderNew.IO.Output
         public BaselineCSVWriter AddCov(CovResult cov)
         {
             _cov = cov;
+            return this;
+        }
+
+        public BaselineCSVWriter AddCusumSlacks(CusumSlacksResult cusumSlacks)
+        {
+            _cusumSlacks = cusumSlacks;
             return this;
         }
 

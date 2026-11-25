@@ -19,7 +19,8 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         protected readonly ExecutionDataflowBlockOptions _blockOptions;
         protected readonly DataflowLinkOptions _linkOptions;
 
-        protected Task Completion { get; init; } = null!;
+        // Completion of the blocks built for the current flight; reassigned by BuildBlocks for every flight
+        protected Task Completion { get; set; } = Task.CompletedTask;
 
         protected SimulationPipeline(IDatabaseReader reader, IOptions<CalcSettings> calcSettings)
         {
@@ -44,16 +45,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
             foreach (FlightDocument flight in flights)
             {
+                // A completed dataflow block can't be reused, so every flight gets new blocks
+                BuildBlocks();
+
+                // Safe to reset the algorithms here: the previous flight's blocks have fully drained
                 InitSimulation();
 
                 IReadOnlyList<ParameterData[]> batches = await _reader.GetInitialPacketsAsync(flight);
-
-                foreach (ParameterData[] batch in batches)
-                {
-                    await SendAsync(batch);
-                }
-
-                batches = await _reader.GetNextPacketsAsync();
 
                 while (batches.Count > 0)
                 {
@@ -64,10 +62,35 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
                     batches = await _reader.GetNextPacketsAsync();
                 }
-            }
 
-            SignalCompletion();
+                SignalCompletion();
+
+                // Barrier: wait until every block in the chain has processed this flight,
+                // so the next flight's InitSimulation can't reset state that is still in use
+                try
+                {
+                    await Completion;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Simulation failed on flight {flight.Id}", ex);
+                }
+
+                // Every frame of this flight has been processed, so per-flight results are complete
+                OnFlightCompleted();
+            }
         }
+
+        /// <summary>
+        /// Called once per flight, after all of the flight's frames have drained through the pipeline.
+        /// </summary>
+        protected virtual void OnFlightCompleted() { }
+
+        /// <summary>
+        /// Creates and links a new set of dataflow blocks and sets <see cref="Completion"/>.
+        /// Called once per flight, before <see cref="InitSimulation"/>.
+        /// </summary>
+        protected abstract void BuildBlocks();
 
         protected abstract Task SendAsync(ParameterData[] batch);
 

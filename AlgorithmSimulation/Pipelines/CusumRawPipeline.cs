@@ -19,12 +19,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         private readonly CusumSim _cusumSim;
         private readonly PercentilesCalculator _percentilesCalc;
 
-        private readonly TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock;
-        private readonly TransformBlock<KalmanFilterResult, double> _cusumRawBlock;
-        private readonly ActionBlock<double> _percentilesBlock;
+        private TransformManyBlock<ParameterData[], KalmanFilterResult> _kalmanBlock = null!;
+        private TransformManyBlock<KalmanFilterResult, double> _cusumRawBlock = null!;
+        private ActionBlock<double> _percentilesBlock = null!;
 
         private QcResult? _qc;
         private R0Result? _r0;
+        private CusumSlacksResult? _slacks;
         private CusumsPercentilesResult? _thresholds;
 
         public CusumRawPipeline
@@ -39,14 +40,17 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
             _kalmanSim = kalmanSim;
             _cusumSim = cusum;
             _percentilesCalc = percentilesCalc;
+        }
 
+        protected override void BuildBlocks()
+        {
             _kalmanBlock = new TransformManyBlock<ParameterData[], KalmanFilterResult>
             (
                 _kalmanSim.KalmanDelegate,
                 _blockOptions
             );
 
-            _cusumRawBlock = new TransformBlock<KalmanFilterResult, double>
+            _cusumRawBlock = new TransformManyBlock<KalmanFilterResult, double>
             (
                 _cusumSim.CusumRawDelegate,
                 _blockOptions
@@ -68,14 +72,13 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
 
         protected override void InitSimulation()
         {
-            if (_r0 is null || _qc is null || _thresholds is null)
+            if (_r0 is null || _qc is null || _slacks is null || _thresholds is null)
             {
                 throw new NullReferenceException("Pipeline wasn't initialized");
             }
 
             _kalmanSim.Init(_qc, _r0);
-            _cusumSim.InitForCusumRaw(_thresholds);
-            _percentilesCalc.Reset();
+            _cusumSim.InitForCusumRaw(_slacks, _thresholds);
         }
 
         protected override async Task SendAsync(ParameterData[] batch)
@@ -89,11 +92,16 @@ namespace BaselineBuilderNew.AlgorithmSimulation.Pipelines
         }
 
 
-        public void InitPipeline(QcResult qc, R0Result r0, CusumsPercentilesResult thresholds)
+        public void InitPipeline(QcResult qc, R0Result r0, CusumSlacksResult slacks, CusumsPercentilesResult thresholds)
         {
             _r0 = r0;
             _qc = qc;
+            _slacks = slacks;
             _thresholds = thresholds;
+
+            // PercentilesCalculator is a singleton shared with MDCusumPipeline (MD distances).
+            // Clear the MD data once, before CusumRaw starts collecting across all flights.
+            _percentilesCalc.Reset();
         }
 
         public async Task<CusumRawPercentilesResult> GetCusumRawThresholds()

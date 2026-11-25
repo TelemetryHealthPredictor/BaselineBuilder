@@ -15,6 +15,8 @@ namespace BaselineBuilderNew.IO.Input.Abstractions
 
         public Task<NamedSample[]> GetNextSamplesAsync();
 
+        public IAsyncEnumerable<NamedSample[]> ReadSampleBatchesAsync(FlightDocument flight);
+
         public int GetTHPFieldCount();
 
         public FieldCatalogDocument[] GetTHPFields();
