@@ -7,7 +7,6 @@ using BaselineBuilderNew.Data.ResultObjects;
 using BaselineBuilderNew.IO.Input.Abstractions;
 using BaselineBuilderNew.KalmanFilterBaseline.Abstractions;
 using MathNet.Numerics.LinearAlgebra;
-using MathNet.Numerics.Statistics;
 using Microsoft.Extensions.Options;
 using MongoLib.Documents;
 using StatsLib;
@@ -18,28 +17,13 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
     internal class R0Calculator : IR0Calculator
     {
         private const double MinVariance = 1e-9;
+        private const double QuietQuantile = 0.15;
+        private const int MaxParallelFlights = 4;
 
         private readonly IDatabaseReader _reader;
         private readonly NamingData _namingData;
 
         private readonly int _requiredNumOfFlights;
-
-        private const int windowSize = 10;
-        private const double quantile = 15;
-
-        private Dictionary<string, MovingStatistics> _variableStats;
-
-        private Dictionary<string, TDigest> _quantileCalculators;
-
-        private Dictionary<string, double> _variances;
-
-        private Dictionary<string, int> _variancesAveraged;
-
-        private Dictionary<string, bool> _variablesFoundInDB;
-
-
-        private int _flightsProcessed = 1;
-        private int _batchesProcessed = 1;
 
 
         public R0Calculator(IDatabaseReader reader, NamingData namingData, IOptions<CalcSettings> calcSettings)
@@ -48,22 +32,6 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
             _namingData = namingData;
 
             _requiredNumOfFlights = calcSettings.Value.RequiredNumOfFlights;
-
-            _quantileCalculators = [];
-
-            _variableStats = [];
-
-            _variances = [];
-            _variancesAveraged = [];
-
-            _variablesFoundInDB = [];
-
-            foreach (string variableName in _namingData.ParameterNames)
-            {
-                _variableStats.Add(variableName, new MovingStatistics(windowSize));
-                _quantileCalculators.Add(variableName, new TDigest());
-                _variablesFoundInDB.Add(variableName, false);
-            }
         }
 
 
@@ -71,106 +39,129 @@ namespace BaselineBuilderNew.KalmanFilterBaseline.Implementations
         {
             FlightDocument[] flights = await _reader.GetFlightsAsync(_requiredNumOfFlights);
 
-            await ProcessFlightsAsync(flights, RecalculateQuantiles);
+            R0Pass1Result pass1Result = await RunPass1Async(flights);
+
+            double[] r0 = await RunPass2Async(flights, pass1Result.QuietStdThresholds);
+
+            for (int i = 0; i < r0.Length; i++)
+            {
+                string variable = _namingData.ParameterNames[i];
+
+                r0[i] = Math.Max(r0[i], GetFloor(pass1Result.MinSteps[variable]));
+            }
 
             return new R0Result()
             {
-                R0DiagonalVector = Vector<double>.Build.DenseOfArray(await CalculateVariances(flights))
+                R0DiagonalVector = Vector<double>.Build.DenseOfArray(r0)
             };
         }
 
-        private async Task<double[]> CalculateVariances(FlightDocument[] flights)
+        // Pass 1: window stds -> merged digest per variable -> p15, plus min step
+        private async Task<R0Pass1Result> RunPass1Async(FlightDocument[] flights)
         {
-            await ProcessFlightsAsync(flights, RecalculateVariances);
+            Dictionary<string, R0VariableState>[] pass1 =
+                await ProcessFlightsAsync(flights, "R0 pass 1", _ => new R0VariableState());
 
-            List<double> result = [];
+            Dictionary<string, double> quietThresholds = [];
+            Dictionary<string, double> minSteps = [];
 
             foreach (string variable in _namingData.ParameterNames)
             {
-                double clampedVariance = Math.Max(MinVariance, _variances[variable]);
+                TDigest[] digests = pass1
+                    .Select(flight => flight[variable].StdDigest)
+                    .Where(digest => digest.Count > 0)
+                    .ToArray();
 
-                result.Add(clampedVariance);
-            }
-
-            return result.ToArray();
-        }
-
-        private async Task ProcessFlightsAsync(FlightDocument[] flights, Action<NamedSample> processSample)
-        {
-            foreach (FlightDocument flight in flights)
-            {
-                Console.WriteLine($"Processing Flight #{_flightsProcessed++}");
-
-                ResetWindows();
-
-                NamedSample[] samples = await _reader.GetInitialSamplesAsync(flight);
-
-                while (samples.Length > 0)
+                if (digests.Length == 0)
                 {
-                    Console.WriteLine($"Processing 5 minute batch of samples #{_batchesProcessed++}");
-                    Console.WriteLine($"Batch sample count: {samples.Length}");
-
-                    foreach (NamedSample sample in samples)
-                    {
-                        _variablesFoundInDB[sample.Name] = true;
-
-                        processSample(sample);
-                    }
-
-                    samples = await _reader.GetNextSamplesAsync();
+                    throw new InvalidOperationException(
+                        $"R0: variable '{variable}' has no complete window in any flight.");
                 }
+
+                TDigest merged = digests.Aggregate(TDigest.Merge);
+
+                quietThresholds[variable] = merged.Quantile(QuietQuantile);
+                minSteps[variable] = pass1.Min(flight => flight[variable].MinStep);
             }
+
+            return new R0Pass1Result()
+            {
+                QuietStdThresholds = quietThresholds,
+                MinSteps = minSteps
+            };
         }
 
-        private void ResetWindows()
+        // Pass 2: mean variance of windows with std <= p15, combined over flights (unfloored, NamingData order)
+        private async Task<double[]> RunPass2Async(FlightDocument[] flights, Dictionary<string, double> quietThresholds)
         {
-            foreach (string fieldName in _namingData.ParameterNames)
+            Dictionary<string, R0VariableState>[] pass2 =
+                await ProcessFlightsAsync(flights, "R0 pass 2", variable => new R0VariableState(quietThresholds[variable]));
+
+            double[] r0 = new double[_namingData.ParameterNames.Length];
+
+            for (int i = 0; i < r0.Length; i++)
             {
-                _variableStats[fieldName] = new MovingStatistics(windowSize);
+                string variable = _namingData.ParameterNames[i];
+
+                long count = pass2.Sum(flight => (long)flight[variable].VarianceCount);
+
+                if (count == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"R0: variable '{variable}' has no quiet window in any flight.");
+                }
+
+                r0[i] = pass2.Sum(flight => flight[variable].VarianceMean * flight[variable].VarianceCount) / count;
             }
+
+            return r0;
         }
 
-        private void RecalculateQuantiles(NamedSample sample)
+        // Quantization floor step²/12; fields that never change keep MinVariance
+        private static double GetFloor(double minStep)
         {
-            _variableStats[sample.Name].Push(sample.Sample.Value);
-
-            if (_variableStats[sample.Name].Count < windowSize)
+            if (!double.IsFinite(minStep))
             {
-                return;
+                return MinVariance;
             }
 
-            double stdDeviation = _variableStats[sample.Name].PopulationStandardDeviation;
-            if (!Double.IsFinite(stdDeviation))
-            {
-                stdDeviation = 0.0;
-            }
-
-            _quantileCalculators[sample.Name].Add(stdDeviation);
+            return Math.Max(MinVariance, minStep * minStep / 12.0);
         }
 
-        private void RecalculateVariances(NamedSample sample)
+        private async Task<Dictionary<string, R0VariableState>[]> ProcessFlightsAsync
+        (
+            FlightDocument[] flights,
+            string passName,
+            Func<string, R0VariableState> createState
+        )
         {
-            _variableStats[sample.Name].Push(sample.Sample.Value);
+            Dictionary<string, R0VariableState>[] results = new Dictionary<string, R0VariableState>[flights.Length];
+            int flightsDone = 0;
 
-            if (_variableStats[sample.Name].Count < windowSize ||
-                _variableStats[sample.Name].PopulationStandardDeviation > 
-                    _quantileCalculators[sample.Name].Quantile(quantile / 100.0))
-            {
-                return;
-            }
+            ParallelOptions options = new() { MaxDegreeOfParallelism = MaxParallelFlights };
 
-            double variance = _variableStats[sample.Name].PopulationVariance;
+            await Parallel.ForEachAsync(Enumerable.Range(0, flights.Length), options, async (index, _) =>
+            {
+                Dictionary<string, R0VariableState> states =
+                    _namingData.ParameterNames.ToDictionary(name => name, createState);
 
-            if (!_variances.ContainsKey(sample.Name))
-            {
-                _variances.Add(sample.Name, variance);
-                _variancesAveraged.Add(sample.Name, 1);
-            }
-            else
-            {
-                _variancesAveraged[sample.Name]++;
-                _variances[sample.Name] += (variance - _variances[sample.Name]) / _variancesAveraged[sample.Name];
-            }
+                await foreach (NamedSample[] batch in _reader.ReadSampleBatchesAsync(flights[index]))
+                {
+                    foreach (NamedSample sample in batch)
+                    {
+                        if (states.TryGetValue(sample.Name, out R0VariableState? state))
+                        {
+                            state.Add(sample.Sample);
+                        }
+                    }
+                }
+
+                results[index] = states;
+
+                Console.WriteLine($"{passName}: flight {Interlocked.Increment(ref flightsDone)}/{flights.Length} done");
+            });
+
+            return results;
         }
     }
 }
